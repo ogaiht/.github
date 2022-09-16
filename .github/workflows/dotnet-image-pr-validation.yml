@@ -1,0 +1,64 @@
+name: "PR validation for .Net apps"
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: ".Net version used during build"
+        required: false
+        default: 6.0.x
+        type: string
+      dockerfile-path:
+        description: "Path to app docker file"
+        required: false
+        type: string
+        default: ''
+      solution:
+        description: "Name of the solution to build"
+        required: true
+        type: string 
+
+jobs:
+  build:    
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      IMAGE_TAG: prregistry/prbuild:0.0.0-Build
+    steps:
+
+      - name: Checkout App
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ intputs.solution }}
+        
+      - name: Build
+        run: dotnet build ${{ inputs.solution }} --no-restore /property:configuration=Release
+        
+      - name: Test
+        run: dotnet test ${{ inputs.solution }} --verbosity normal --no-restore /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+        
+      - name: Build image
+        id: image-build
+        run: |
+          if [ ${{ inputs.dockerfile-path != '' }} == true ]; then
+            echo "Building image for docker file at '${{ inputs.dockerfile-path }}'"            
+            docker build \
+            --build-arg GIT_NUGET_URL=${{ inputs.package-url }} \
+            -f ${{ inputs.dockerfile-path }}/Dockerfile \
+            -t prregistry/prbuild:0.0.0-Build .            
+            echo "::set-output name=dockerfilePath::${{ inputs.dockerfile-path }}/Dockerfile"            
+          else          
+            echo "Building image for docker file at '${{ inputs.dockerfile-path }}'"            
+            docker build \
+            --build-arg GIT_NUGET_URL=${{ inputs.package-url }} \            
+            -t ${{ env.IMAGE_TAG }} .
+            echo "::set-output name=dockerfilePath::Dockerfile"
+          fi
